@@ -3,6 +3,7 @@ import { renderer } from './renderer'
 import auth from './routes/auth'
 import users from './routes/users'
 import type { AppEnv } from './types'
+import ghibli from './routes/ghibli'
 
 const app = new Hono<AppEnv>()
 
@@ -23,5 +24,6 @@ app.get('/health', (c) => {
 // Feature routes
 app.route('/api/v1/auth', auth)
 app.route('/api/v1/users', users)
+app.route('/api/v1/ghibli', ghibli)
 
 export default app
