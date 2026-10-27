@@ -1,8 +1,9 @@
 import { Hono } from "hono";
 import { requireAuth, requireAdmin } from "../middleware/auth";
 import { createSupabaseAdminClient } from "../lib/supabase";
-import { createUserSchema } from "../schemas/user";
+import { createUserSchema, updateUserSchema } from "../schemas/user";
 import type { AppEnv } from "../types";
+import z from "zod";
 
 const users = new Hono<AppEnv>();
 
@@ -46,6 +47,34 @@ users.get("/", requireAuth, requireAdmin, async (c) => {
       totalPages: Math.ceil((count ?? 0) / limit),
     },
   });
+});
+
+// GET /api/v1/users/:id — Retrieves a user by ID (admin only)
+users.get("/:id", requireAuth, requireAdmin, async (c) => {
+  const id = c.req.param("id");
+
+  if (!z.uuid().safeParse(id).success) {
+    return c.json({ error: "Invalid user ID" }, 400);
+  }
+
+  const supabase = createSupabaseAdminClient(c.env);
+
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("id, name, email, role, created_at, updated_at")
+    .eq("id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
+
+  if (error) {
+    return c.json({ error: "Error trying to retrieve user" }, 500);
+  }
+
+  if (!data) {
+    return c.json({ error: "User not found" }, 404);
+  }
+
+  return c.json({ data });
 });
 
 // POST /api/v1/users — Creates a new user (admin only)
@@ -128,6 +157,172 @@ users.post("/", requireAuth, requireAdmin, async (c) => {
   }
 
   return c.json({ data: profile }, 201);
+});
+
+// PATCH /api/v1/users/:id — Updates an existing user (admin only)
+users.patch("/:id", requireAuth, requireAdmin, async (c) => {
+  const id = c.req.param("id");
+
+  if (!z.uuid().safeParse(id).success) {
+    return c.json({ error: "Invalid user ID" }, 400);
+  }
+
+  let body: unknown;
+
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "The request body must be valid JSON" }, 400);
+  }
+
+  const validation = updateUserSchema.safeParse(body);
+
+  if (!validation.success) {
+    return c.json(
+      {
+        error: "Invalid user data",
+        details: validation.error.issues.map((issue) => ({
+          field: issue.path.join("."),
+          message: issue.message,
+        })),
+      },
+      400,
+    );
+  }
+
+  const changes = validation.data;
+  const supabase = createSupabaseAdminClient(c.env);
+
+  const { data: existing, error: findError } = await supabase
+    .from("profiles")
+    .select("id, role")
+    .eq("id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
+
+  if (findError) {
+    return c.json({ error: "Error trying to retrieve user" }, 500);
+  }
+
+  if (!existing) {
+    return c.json({ error: "User not found" }, 404);
+  }
+
+  // Evita dejar el sistema sin administradores activos.
+  if (existing.role === "admin" && changes.role && changes.role !== "admin") {
+    const { count, error: countError } = await supabase
+      .from("profiles")
+      .select("id", { count: "exact", head: true })
+      .eq("role", "admin")
+      .is("deleted_at", null);
+
+    if (countError) {
+      return c.json(
+        { error: "Error trying to verify active administrators" },
+        500,
+      );
+    }
+
+    if ((count ?? 0) <= 1) {
+      return c.json(
+        { error: "You cannot remove the last active administrator" },
+        409,
+      );
+    }
+  }
+
+  const { data, error } = await supabase
+    .from("profiles")
+    .update({
+      ...changes,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id)
+    .is("deleted_at", null)
+    .select("id, name, email, role, created_at, updated_at")
+    .maybeSingle();
+
+  if (error) {
+    return c.json({ error: "Error trying to update user" }, 500);
+  }
+
+  if (!data) {
+    return c.json({ error: "User not found" }, 404);
+  }
+
+  return c.json({ data });
+});
+
+// DELETE /api/v1/users/:id — Soft-deletes a user (admin only)
+users.delete("/:id", requireAuth, requireAdmin, async (c) => {
+  const id = c.req.param("id");
+
+  if (!z.uuid().safeParse(id).success) {
+    return c.json({ error: "Invalid user ID" }, 400);
+  }
+
+  const supabase = createSupabaseAdminClient(c.env);
+
+  const { data: target, error: findError } = await supabase
+    .from("profiles")
+    .select("id, role")
+    .eq("id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
+
+  if (findError) {
+    return c.json({ error: "Error trying to retrieve user" }, 500);
+  }
+
+  if (!target) {
+    return c.json({ error: "User not found" }, 404);
+  }
+
+  if (target.role === "admin") {
+    const { count, error: countError } = await supabase
+      .from("profiles")
+      .select("id", { count: "exact", head: true })
+      .eq("role", "admin")
+      .is("deleted_at", null);
+
+    if (countError) {
+      return c.json(
+        { error: "Error trying to verify active administrators" },
+        500,
+      );
+    }
+
+    if ((count ?? 0) <= 1) {
+      return c.json(
+        { error: "You cannot delete the last active administrator" },
+        409,
+      );
+    }
+  }
+
+  const { data, error } = await supabase
+    .from("profiles")
+    .update({
+      deleted_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id)
+    .is("deleted_at", null)
+    .select("id, name, email, role, deleted_at")
+    .maybeSingle();
+
+  if (error) {
+    return c.json({ error: "Error trying to delete user" }, 500);
+  }
+
+  if (!data) {
+    return c.json({ error: "User not found" }, 404);
+  }
+
+  return c.json({
+    message: "User disabled successfully",
+    data,
+  });
 });
 
 export default users;
