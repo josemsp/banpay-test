@@ -10,7 +10,7 @@ export const requireAuth = createMiddleware<AppEnv>(async (c, next) => {
   const match = authorization?.match(/^Bearer\s+(.+)$/i);
 
   if (!match) {
-    return c.json({ error: "Token de acceso requerido" }, 401);
+    return c.json({ error: "Access Token required" }, 401);
   }
 
   const token = match[1];
@@ -24,7 +24,7 @@ export const requireAuth = createMiddleware<AppEnv>(async (c, next) => {
   const { data, error } = await supabase.auth.getUser(token);
 
   if (error || !data.user) {
-    return c.json({ error: "Token inválido o expirado" }, 401);
+    return c.json({ error: "Invalid or expired Token" }, 401);
   }
 
   const admin = createSupabaseAdminClient(c.env);
@@ -36,11 +36,11 @@ export const requireAuth = createMiddleware<AppEnv>(async (c, next) => {
     .maybeSingle();
 
   if (profileError) {
-    return c.json({ error: "Error al verificar el perfil" }, 500);
+    return c.json({ error: "Error trying to verify profile" }, 500);
   }
 
   if (!profile || profile.deleted_at !== null) {
-    return c.json({ error: "Usuario inactivo o sin perfil" }, 403);
+    return c.json({ error: "User inactive or without profile" }, 403);
   }
 
   c.set("authUser", {
@@ -53,7 +53,7 @@ export const requireAuth = createMiddleware<AppEnv>(async (c, next) => {
 
 export const requireAdmin = createMiddleware<AppEnv>(async (c, next) => {
   if (c.get("authUser").role !== "admin") {
-    return c.json({ error: "Permisos insuficientes" }, 403);
+    return c.json({ error: "Insufficient permissions" }, 403);
   }
 
   await next();
