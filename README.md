@@ -112,7 +112,7 @@ Autentica a un usuario activo mediante sus credenciales y retorna un token JWT d
 
 ### 3. Gestión de Usuarios
 
-> **Nota:** Todos los endpoints de usuarios requieren el rol `admin` y el encabezado `Authorization: Bearer <access_token>`.
+> **Nota:** Todos los endpoints de usuarios requieren el encabezado `Authorization: Bearer <access_token>`. Salvo `PATCH /api/v1/users/:id`, que permite a cualquier usuario autenticado actualizar su propio nombre, el resto de endpoints requieren el rol `admin`.
 
 #### `GET /api/v1/users`
 Obtiene una lista paginada de los perfiles de usuario activos ordenados descendentemente por fecha de creación.
@@ -202,6 +202,10 @@ Crea una nueva cuenta de usuario en Supabase Auth y su respectivo registro en la
 #### `PATCH /api/v1/users/:id`
 Actualiza parcialmente el perfil de un usuario activo (`name` y/o `role`).
 
+- **Autorización:**
+  - Un usuario autenticado puede actualizar su propio `name`.
+  - Solo un `admin` puede actualizar a otros usuarios y cambiar `role`.
+  - Ningún usuario puede cambiar su propio `role`, ni siquiera un `admin`.
 - **Headers:**
   - `Authorization: Bearer <token>`
   - `Content-Type: application/json`
@@ -231,6 +235,7 @@ Actualiza parcialmente el perfil de un usuario activo (`name` y/o `role`).
 - **Respuestas:**
   - `200 OK`: Perfil actualizado.
   - `400 Bad Request`: `id` no es UUID, body vacío, campos extras no permitidos o datos inválidos.
+  - `403 Forbidden`: Un usuario sin rol `admin` intenta modificar a otro usuario o intenta cambiar su propio `role`.
   - `404 Not Found`: Usuario inexistente o inactivo.
   - `409 Conflict`: Si se intenta degradar el rol del único administrador activo restante en el sistema.
 
@@ -353,6 +358,7 @@ Consulta un elemento específico de un recurso por su identificador.
 
 - **Bearer Token:** Todas las rutas protegidas validan el token JWT con Supabase Auth (`supabase.auth.getUser()`).
 - **Verificación en Base de Datos:** Cada petición protegida consulta el perfil activo en PostgreSQL para garantizar que el usuario no ha sido eliminado (`deleted_at is null`) y que su rol coincide con los privilegios exigidos.
+- **Actualización de Perfil:** Cualquier usuario autenticado puede editar su propio nombre, pero no su propio rol. Solo un `admin` puede cambiar el rol de otros usuarios.
 - **Protección de Último Administrador:** No es posible eliminar ni degradar el rol del último usuario `admin` activo del sistema.
 - **Trazabilidad:** La eliminación lógica conserva el registro de perfil histórico (`deleted_at`), pero borra la cuenta en `auth.users` revocando el acceso inmediatamente y permitiendo un nuevo registro futuro con el mismo email si fuese necesario.
 

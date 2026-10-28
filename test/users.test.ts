@@ -12,6 +12,19 @@ const listUsers = (search = "") =>
 const createUser = (body: unknown) =>
   app.request("/api/v1/users", jsonBody(body, AUTH_HEADERS), env);
 
+const OTHER_USER_ID = "22222222-2222-4222-8222-222222222222";
+
+const updateUser = (id: string, body: unknown) =>
+  app.request(
+    `/api/v1/users/${id}`,
+    {
+      method: "PATCH",
+      headers: { ...AUTH_HEADERS, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+    env,
+  );
+
 const newUser = {
   name: "New User",
   email: "new@test.dev",
@@ -296,5 +309,93 @@ describe("POST /api/v1/users", () => {
       role: newUser.role,
     });
     expect(db.auth.admin.deleteUser).not.toHaveBeenCalled();
+  });
+});
+
+describe("PATCH /api/v1/users/:id", () => {
+  it("lets a non-admin update their own name", async () => {
+    mockSignedInUser("films");
+    query.maybeSingle
+      .mockResolvedValueOnce({
+        data: { id: USER_ID, role: "films", deleted_at: null },
+        error: null,
+      })
+      .mockResolvedValueOnce({
+        data: { id: USER_ID, role: "films" },
+        error: null,
+      })
+      .mockResolvedValueOnce({
+        data: { ...storedProfile, name: "Updated Name", role: "films" },
+        error: null,
+      });
+
+    const res = await updateUser(USER_ID, { name: "Updated Name" });
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({
+      data: { ...storedProfile, name: "Updated Name", role: "films" },
+    });
+    expect(query.update).toHaveBeenCalledWith({ name: "Updated Name" });
+  });
+
+  it("rejects a non-admin trying to change their own role", async () => {
+    mockSignedInUser("films");
+
+    const res = await updateUser(USER_ID, { role: "admin" });
+
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toEqual({
+      error: "You cannot change your own role",
+    });
+    expect(query.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects a non-admin trying to update another user", async () => {
+    mockSignedInUser("films");
+
+    const res = await updateUser(OTHER_USER_ID, { name: "Hijacked" });
+
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toEqual({
+      error: "Insufficient permissions",
+    });
+    expect(query.update).not.toHaveBeenCalled();
+  });
+
+  it("lets an admin update another user's role", async () => {
+    mockSignedInUser("admin");
+    query.maybeSingle
+      .mockResolvedValueOnce({
+        data: { id: USER_ID, role: "admin", deleted_at: null },
+        error: null,
+      })
+      .mockResolvedValueOnce({
+        data: { id: OTHER_USER_ID, role: "films" },
+        error: null,
+      })
+      .mockResolvedValueOnce({
+        data: { ...storedProfile, id: OTHER_USER_ID, role: "people" },
+        error: null,
+      });
+
+    const res = await updateUser(OTHER_USER_ID, { role: "people" });
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({
+      data: { ...storedProfile, id: OTHER_USER_ID, role: "people" },
+    });
+    expect(query.update).toHaveBeenCalledWith({ role: "people" });
+  });
+
+  it("rejects an admin trying to change their own role", async () => {
+    mockSignedInUser("admin");
+
+    const res = await updateUser(USER_ID, { role: "people" });
+
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toEqual({
+      error: "You cannot change your own role",
+    });
+    expect(query.update).not.toHaveBeenCalled();
   });
 });

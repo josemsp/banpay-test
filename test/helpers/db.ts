@@ -1,6 +1,6 @@
 import { vi } from "vitest";
 
-export const USER_ID = "11111111-1111-1111-1111-111111111111";
+export const USER_ID = "11111111-1111-4111-8111-111111111111";
 
 // Shared chainable PostgREST builder. Every `.from()` call returns it, so a
 // test configures the terminal method (`single`, `maybeSingle`, `range`) once.

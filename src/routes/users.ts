@@ -22,7 +22,6 @@ import {
 const users = new OpenAPIHono<AppEnv>();
 
 users.use("*", requireAuth);
-users.use("*", requireAdmin);
 
 const listUsersRoute = createRoute({
   method: "get",
@@ -31,6 +30,7 @@ const listUsersRoute = createRoute({
   summary: "List users",
   description: "Lists paginated users (admin only)",
   security: [{ bearerAuth: [] }],
+  middleware: [requireAdmin],
   request: {
     query: paginationQuerySchema,
   },
@@ -129,6 +129,7 @@ const getUserRoute = createRoute({
   summary: "Get user",
   description: "Retrieves a user by ID (admin only)",
   security: [{ bearerAuth: [] }],
+  middleware: [requireAdmin],
   request: {
     params: userIdParamSchema,
   },
@@ -219,6 +220,7 @@ const createUserRoute = createRoute({
   description:
     "Creates a new user (admin only). Request body: { name, email, password, role }",
   security: [{ bearerAuth: [] }],
+  middleware: [requireAdmin],
   responses: {
     201: {
       description: "User created",
@@ -354,7 +356,8 @@ const updateUserRoute = createRoute({
   path: "/{id}",
   tags: ["Users"],
   summary: "Update user",
-  description: "Updates an existing user (admin only).",
+  description:
+    "Updates an existing user. Admins can update any user; authenticated users can update their own name. Nobody can change their own role.",
   security: [{ bearerAuth: [] }],
   request: {
     params: userIdParamSchema,
@@ -434,6 +437,13 @@ users.openapi(updateUserRoute, async (c: any) => {
     return c.json({ error: "Invalid user ID" }, 400);
   }
 
+  const authUser = c.get("authUser");
+  const isOwnProfile = authUser.id === id;
+
+  if (authUser.role !== "admin" && !isOwnProfile) {
+    return c.json({ error: "Insufficient permissions" }, 403);
+  }
+
   let body: unknown;
 
   try {
@@ -458,6 +468,11 @@ users.openapi(updateUserRoute, async (c: any) => {
   }
 
   const changes = validation.data;
+
+  if (isOwnProfile && changes.role !== undefined) {
+    return c.json({ error: "You cannot change your own role" }, 403);
+  }
+
   const supabase = createSupabaseAdminClient(c.env);
 
   const { data: existing, error: findError } = await supabase
@@ -523,6 +538,7 @@ const deleteUserRoute = createRoute({
   summary: "Delete user",
   description: "Soft-deletes profile and removes from Auth (admin only)",
   security: [{ bearerAuth: [] }],
+  middleware: [requireAdmin],
   request: {
     params: userIdParamSchema,
   },
