@@ -23,5 +23,5 @@ export const updateUserSchema = z
   })
   .strict()
   .refine((data) => Object.keys(data).length > 0, {
-    message: "Debes proporcionar al menos un campo para actualizar",
+    message: "You must provide at least one field to update",
   });

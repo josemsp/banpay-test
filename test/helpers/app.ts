@@ -12,6 +12,7 @@ import { Hono } from "hono";
 import auth from "../../src/routes/auth";
 import users from "../../src/routes/users";
 import type { AppEnv } from "../../src/types";
+import ghibli from "../../src/routes/ghibli";
 
 export const env: AppEnv["Bindings"] = {
   SUPABASE_URL: "https://supabase.test",
@@ -25,13 +26,11 @@ export function createTestApp() {
   const app = new Hono<AppEnv>();
   app.route("/api/v1/auth", auth);
   app.route("/api/v1/users", users);
+  app.route("/api/v1/ghibli", ghibli);
   return app;
 }
 
-export function jsonBody(
-  body: unknown,
-  headers: Record<string, string> = {},
-) {
+export function jsonBody(body: unknown, headers: Record<string, string> = {}) {
   return {
     method: "POST",
     headers: { "Content-Type": "application/json", ...headers },

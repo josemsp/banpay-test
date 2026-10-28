@@ -1,14 +1,84 @@
-import { Hono } from "hono";
+import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { requireAuth, requireAdmin } from "../middleware/auth";
 import { createSupabaseAdminClient } from "../lib/supabase";
 import { createUserSchema, updateUserSchema } from "../schemas/user";
 import type { AppEnv } from "../types";
-import z from "zod";
+import {
+  createUserBodySchema,
+  createUserResponseSchema,
+  deleteUserResponseSchema,
+  errorSchema,
+  errorWithDetailsSchema,
+  invalidIdSchema,
+  invalidPaginationSchema,
+  paginationQuerySchema,
+  updateUserBodySchema,
+  userIdParamSchema,
+  userNotFoundSchema,
+  userResponseSchema,
+  usersListResponseSchema,
+} from "../schemas/openapi";
 
-const users = new Hono<AppEnv>();
+const users = new OpenAPIHono<AppEnv>();
 
-// GET /api/v1/users — Lists paginated users (admin only)
-users.get("/", requireAuth, requireAdmin, async (c) => {
+users.use("*", requireAuth);
+users.use("*", requireAdmin);
+
+const listUsersRoute = createRoute({
+  method: "get",
+  path: "/",
+  tags: ["Users"],
+  summary: "List users",
+  description: "Lists paginated users (admin only)",
+  security: [{ bearerAuth: [] }],
+  request: {
+    query: paginationQuerySchema,
+  },
+  responses: {
+    200: {
+      description: "List of users",
+      content: {
+        "application/json": {
+          schema: usersListResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Invalid pagination parameters",
+      content: {
+        "application/json": {
+          schema: invalidPaginationSchema,
+        },
+      },
+    },
+    401: {
+      description: "Unauthorized",
+      content: {
+        "application/json": {
+          schema: errorSchema,
+        },
+      },
+    },
+    403: {
+      description: "Forbidden",
+      content: {
+        "application/json": {
+          schema: errorSchema,
+        },
+      },
+    },
+    500: {
+      description: "Server error",
+      content: {
+        "application/json": {
+          schema: errorSchema,
+        },
+      },
+    },
+  },
+});
+
+users.openapi(listUsersRoute, async (c: any) => {
   const page = Number(c.req.query("page") ?? "1");
   const limit = Number(c.req.query("limit") ?? "20");
 
@@ -38,19 +108,83 @@ users.get("/", requireAuth, requireAdmin, async (c) => {
     return c.json({ error: "Error trying to retrieve users" }, 500);
   }
 
-  return c.json({
-    data,
-    pagination: {
-      page,
-      limit,
-      total: count ?? 0,
-      totalPages: Math.ceil((count ?? 0) / limit),
+  return c.json(
+    {
+      data,
+      pagination: {
+        page,
+        limit,
+        total: count ?? 0,
+        totalPages: Math.ceil((count ?? 0) / limit),
+      },
     },
-  });
+    200,
+  );
 });
 
-// GET /api/v1/users/:id — Retrieves a user by ID (admin only)
-users.get("/:id", requireAuth, requireAdmin, async (c) => {
+const getUserRoute = createRoute({
+  method: "get",
+  path: "/{id}",
+  tags: ["Users"],
+  summary: "Get user",
+  description: "Retrieves a user by ID (admin only)",
+  security: [{ bearerAuth: [] }],
+  request: {
+    params: userIdParamSchema,
+  },
+  responses: {
+    200: {
+      description: "User found",
+      content: {
+        "application/json": {
+          schema: userResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Invalid user ID",
+      content: {
+        "application/json": {
+          schema: invalidIdSchema,
+        },
+      },
+    },
+    401: {
+      description: "Unauthorized",
+      content: {
+        "application/json": {
+          schema: errorSchema,
+        },
+      },
+    },
+    403: {
+      description: "Forbidden",
+      content: {
+        "application/json": {
+          schema: errorSchema,
+        },
+      },
+    },
+    404: {
+      description: "User not found",
+      content: {
+        "application/json": {
+          schema: userNotFoundSchema,
+        },
+      },
+    },
+    500: {
+      description: "Server error",
+      content: {
+        "application/json": {
+          schema: errorSchema,
+        },
+      },
+    },
+  },
+});
+
+users.openapi(getUserRoute, async (c: any) => {
   const id = c.req.param("id");
 
   if (!z.uuid().safeParse(id).success) {
@@ -74,11 +208,70 @@ users.get("/:id", requireAuth, requireAdmin, async (c) => {
     return c.json({ error: "User not found" }, 404);
   }
 
-  return c.json({ data });
+  return c.json({ data }, 200);
 });
 
-// POST /api/v1/users — Creates a new user (admin only)
-users.post("/", requireAuth, requireAdmin, async (c) => {
+const createUserRoute = createRoute({
+  method: "post",
+  path: "/",
+  tags: ["Users"],
+  summary: "Create user",
+  description:
+    "Creates a new user (admin only). Request body: { name, email, password, role }",
+  security: [{ bearerAuth: [] }],
+  responses: {
+    201: {
+      description: "User created",
+      content: {
+        "application/json": {
+          schema: createUserResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Invalid user data or could not create account",
+      content: {
+        "application/json": {
+          schema: errorWithDetailsSchema,
+        },
+      },
+    },
+    401: {
+      description: "Unauthorized",
+      content: {
+        "application/json": {
+          schema: errorSchema,
+        },
+      },
+    },
+    403: {
+      description: "Forbidden",
+      content: {
+        "application/json": {
+          schema: errorSchema,
+        },
+      },
+    },
+    409: {
+      description: "Email already registered",
+      content: {
+        "application/json": {
+          schema: errorSchema,
+        },
+      },
+    },
+    500: {
+      description: "Server error",
+      content: {
+        "application/json": {
+          schema: errorWithDetailsSchema,
+        },
+      },
+    },
+  },
+});
+
+users.openapi(createUserRoute, async (c: any) => {
   let body: unknown;
 
   try {
@@ -116,7 +309,7 @@ users.post("/", requireAuth, requireAdmin, async (c) => {
   if (authError || !authData.user) {
     if (
       authError?.code === "email_exists" ||
-      authError?.message.toLowerCase().includes("already registered")
+      authError?.message?.toLowerCase().includes("already registered")
     ) {
       return c.json({ error: "Email already registered" }, 409);
     }
@@ -129,21 +322,18 @@ users.post("/", requireAuth, requireAdmin, async (c) => {
     .insert({
       id: authData.user.id,
       name,
-      email: authData.user.email ?? email,
+      email: authData.user.email ?? email.toLowerCase(),
       role,
     })
     .select("id, name, email, role, created_at")
     .single();
 
   if (profileError) {
-    // Compensate: remove the Auth account so no user is left without profile.
     const { error: rollbackError } = await supabase.auth.admin.deleteUser(
       authData.user.id,
     );
 
     if (rollbackError) {
-      // Cannot compensate automatically: return the id so an admin can
-      // reconcile this account before retrying.
       return c.json(
         {
           error: "Account was created, but could not complete profile",
@@ -159,8 +349,85 @@ users.post("/", requireAuth, requireAdmin, async (c) => {
   return c.json({ data: profile }, 201);
 });
 
-// PATCH /api/v1/users/:id — Updates an existing user (admin only)
-users.patch("/:id", requireAuth, requireAdmin, async (c) => {
+const updateUserRoute = createRoute({
+  method: "patch",
+  path: "/{id}",
+  tags: ["Users"],
+  summary: "Update user",
+  description: "Updates an existing user (admin only).",
+  security: [{ bearerAuth: [] }],
+  request: {
+    params: userIdParamSchema,
+    body: {
+      required: true,
+      content: {
+        "application/json": {
+          schema: updateUserBodySchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "User updated",
+      content: {
+        "application/json": {
+          schema: userResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Invalid user ID or invalid user data",
+      content: {
+        "application/json": {
+          schema: errorWithDetailsSchema,
+        },
+      },
+    },
+    401: {
+      description: "Unauthorized",
+      content: {
+        "application/json": {
+          schema: errorSchema,
+        },
+      },
+    },
+    403: {
+      description: "Forbidden",
+      content: {
+        "application/json": {
+          schema: errorSchema,
+        },
+      },
+    },
+    404: {
+      description: "User not found",
+      content: {
+        "application/json": {
+          schema: userNotFoundSchema,
+        },
+      },
+    },
+    409: {
+      description: "Cannot remove the last active administrator",
+      content: {
+        "application/json": {
+          schema: errorSchema,
+        },
+      },
+    },
+    500: {
+      description: "Server error",
+      content: {
+        "application/json": {
+          schema: errorSchema,
+        },
+      },
+    },
+  },
+});
+
+users.openapi(updateUserRoute, async (c: any) => {
   const id = c.req.param("id");
 
   if (!z.uuid().safeParse(id).success) {
@@ -208,7 +475,6 @@ users.patch("/:id", requireAuth, requireAdmin, async (c) => {
     return c.json({ error: "User not found" }, 404);
   }
 
-  // Evita dejar el sistema sin administradores activos.
   if (existing.role === "admin" && changes.role && changes.role !== "admin") {
     const { count, error: countError } = await supabase
       .from("profiles")
@@ -233,10 +499,7 @@ users.patch("/:id", requireAuth, requireAdmin, async (c) => {
 
   const { data, error } = await supabase
     .from("profiles")
-    .update({
-      ...changes,
-      updated_at: new Date().toISOString(),
-    })
+    .update(changes)
     .eq("id", id)
     .is("deleted_at", null)
     .select("id, name, email, role, created_at, updated_at")
@@ -250,11 +513,80 @@ users.patch("/:id", requireAuth, requireAdmin, async (c) => {
     return c.json({ error: "User not found" }, 404);
   }
 
-  return c.json({ data });
+  return c.json({ data }, 200);
 });
 
-// DELETE /api/v1/users/:id — Soft-deletes a user (admin only)
-users.delete("/:id", requireAuth, requireAdmin, async (c) => {
+const deleteUserRoute = createRoute({
+  method: "delete",
+  path: "/{id}",
+  tags: ["Users"],
+  summary: "Delete user",
+  description: "Soft-deletes profile and removes from Auth (admin only)",
+  security: [{ bearerAuth: [] }],
+  request: {
+    params: userIdParamSchema,
+  },
+  responses: {
+    200: {
+      description: "User deleted",
+      content: {
+        "application/json": {
+          schema: deleteUserResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Invalid user ID",
+      content: {
+        "application/json": {
+          schema: invalidIdSchema,
+        },
+      },
+    },
+    401: {
+      description: "Unauthorized",
+      content: {
+        "application/json": {
+          schema: errorSchema,
+        },
+      },
+    },
+    403: {
+      description: "Forbidden",
+      content: {
+        "application/json": {
+          schema: errorSchema,
+        },
+      },
+    },
+    404: {
+      description: "User not found",
+      content: {
+        "application/json": {
+          schema: userNotFoundSchema,
+        },
+      },
+    },
+    409: {
+      description: "Cannot delete the last active administrator",
+      content: {
+        "application/json": {
+          schema: errorSchema,
+        },
+      },
+    },
+    500: {
+      description: "Server error",
+      content: {
+        "application/json": {
+          schema: errorSchema,
+        },
+      },
+    },
+  },
+});
+
+users.openapi(deleteUserRoute, async (c: any) => {
   const id = c.req.param("id");
 
   if (!z.uuid().safeParse(id).success) {
@@ -300,29 +632,26 @@ users.delete("/:id", requireAuth, requireAdmin, async (c) => {
     }
   }
 
-  const { data, error } = await supabase
+  const { error: updateError } = await supabase
     .from("profiles")
     .update({
       deleted_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
     })
     .eq("id", id)
-    .is("deleted_at", null)
-    .select("id, name, email, role, deleted_at")
-    .maybeSingle();
+    .is("deleted_at", null);
 
-  if (error) {
+  if (updateError) {
     return c.json({ error: "Error trying to delete user" }, 500);
   }
 
-  if (!data) {
-    return c.json({ error: "User not found" }, 404);
+  const { error: authDeleteError } = await supabase.auth.admin.deleteUser(id);
+
+  if (authDeleteError) {
+    console.log("authDeleteError", authDeleteError);
+    return c.json({ error: "Error trying to delete user from Auth" }, 500);
   }
 
-  return c.json({
-    message: "User disabled successfully",
-    data,
-  });
+  return c.json({ message: "User deleted successfully" }, 200);
 });
 
 export default users;

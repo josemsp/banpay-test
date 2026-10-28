@@ -1,8 +1,15 @@
-import { Hono, type Context } from "hono";
+import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { requireAuth } from "../middleware/auth";
 import type { AppEnv } from "../types";
+import {
+  errorSchema,
+  ghibliIdParamSchema,
+  ghibliListResponseSchema,
+  ghibliQuerySchema,
+  ghibliResourceParamSchema,
+} from "../schemas/openapi";
 
-const ghibli = new Hono<AppEnv>();
+const ghibli = new OpenAPIHono<AppEnv>();
 
 const resources = {
   films: "films",
@@ -32,11 +39,7 @@ function canAccess(role: string, resource: Resource): boolean {
   return allowed === "all" || allowed === resource;
 }
 
-async function fetchGhibli(
-  c: Context<AppEnv>,
-  resource: Resource,
-  id?: string,
-) {
+async function fetchGhibli(c: any, resource: Resource, id?: string) {
   const path = `https://ghibliapi.vercel.app/${resources[resource]}${
     id ? `/${encodeURIComponent(id)}` : ""
   }`;
@@ -90,7 +93,7 @@ async function fetchGhibli(
     }
 
     const data: unknown = await response.json();
-    return c.json({ data });
+    return c.json({ data }, 200);
   } catch {
     return c.json({ error: "The Studio Ghibli service is not available" }, 502);
   }
@@ -98,7 +101,71 @@ async function fetchGhibli(
 
 ghibli.use("*", requireAuth);
 
-ghibli.get("/:resource", async (c) => {
+const listGhibliRoute = createRoute({
+  method: "get",
+  path: "/{resource}",
+  tags: ["Ghibli"],
+  summary: "List Ghibli resource",
+  description:
+    "List resources from Studio Ghibli API. Access depends on user role.",
+  security: [{ bearerAuth: [] }],
+  request: {
+    params: ghibliResourceParamSchema,
+    query: ghibliQuerySchema,
+  },
+  responses: {
+    200: {
+      description: "List of resources",
+      content: {
+        "application/json": {
+          schema: ghibliListResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Bad request",
+      content: {
+        "application/json": {
+          schema: errorSchema,
+        },
+      },
+    },
+    401: {
+      description: "Unauthorized",
+      content: {
+        "application/json": {
+          schema: errorSchema,
+        },
+      },
+    },
+    403: {
+      description: "Forbidden",
+      content: {
+        "application/json": {
+          schema: errorSchema,
+        },
+      },
+    },
+    404: {
+      description: "Resource not found",
+      content: {
+        "application/json": {
+          schema: errorSchema,
+        },
+      },
+    },
+    502: {
+      description: "Studio Ghibli service unavailable",
+      content: {
+        "application/json": {
+          schema: errorSchema,
+        },
+      },
+    },
+  },
+});
+
+ghibli.openapi(listGhibliRoute, async (c: any) => {
   const resourceParam = c.req.param("resource");
 
   if (!isResource(resourceParam)) {
@@ -117,7 +184,71 @@ ghibli.get("/:resource", async (c) => {
   return fetchGhibli(c, resourceParam);
 });
 
-ghibli.get("/:resource/:id", async (c) => {
+const getGhibliRoute = createRoute({
+  method: "get",
+  path: "/{resource}/{id}",
+  tags: ["Ghibli"],
+  summary: "Get Ghibli resource by ID",
+  description:
+    "Get a single resource from Studio Ghibli API. Access depends on user role.",
+  security: [{ bearerAuth: [] }],
+  request: {
+    params: ghibliIdParamSchema,
+    query: ghibliQuerySchema,
+  },
+  responses: {
+    200: {
+      description: "Resource found",
+      content: {
+        "application/json": {
+          schema: ghibliListResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Bad request",
+      content: {
+        "application/json": {
+          schema: errorSchema,
+        },
+      },
+    },
+    401: {
+      description: "Unauthorized",
+      content: {
+        "application/json": {
+          schema: errorSchema,
+        },
+      },
+    },
+    403: {
+      description: "Forbidden",
+      content: {
+        "application/json": {
+          schema: errorSchema,
+        },
+      },
+    },
+    404: {
+      description: "Resource not found",
+      content: {
+        "application/json": {
+          schema: errorSchema,
+        },
+      },
+    },
+    502: {
+      description: "Studio Ghibli service unavailable",
+      content: {
+        "application/json": {
+          schema: errorSchema,
+        },
+      },
+    },
+  },
+});
+
+ghibli.openapi(getGhibliRoute, async (c: any) => {
   const resourceParam = c.req.param("resource");
   const id = c.req.param("id");
 

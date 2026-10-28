@@ -4,10 +4,77 @@ import {
   createSupabaseAdminClient,
 } from "../lib/supabase";
 import type { AppEnv } from "../types";
+import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import {
+  errorSchema,
+  errorWithDetailsSchema,
+  loginResponseSchema,
+  loginSchema,
+} from "../schemas/openapi";
 
-const auth = new Hono<AppEnv>();
+const auth = new OpenAPIHono<AppEnv>();
 
-auth.post("/login", async (c) => {
+const loginRoute = createRoute({
+  method: "post",
+  path: "/login",
+  tags: ["Auth"],
+  summary: "Login",
+  description: "Authenticate user with email and password.",
+  request: {
+    body: {
+      required: true,
+      content: {
+        "application/json": {
+          schema: loginSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Successful login",
+      content: {
+        "application/json": {
+          schema: loginResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Bad request",
+      content: {
+        "application/json": {
+          schema: errorSchema,
+        },
+      },
+    },
+    401: {
+      description: "Invalid credentials",
+      content: {
+        "application/json": {
+          schema: errorSchema,
+        },
+      },
+    },
+    403: {
+      description: "Account disabled",
+      content: {
+        "application/json": {
+          schema: errorSchema,
+        },
+      },
+    },
+    500: {
+      description: "Server error",
+      content: {
+        "application/json": {
+          schema: errorSchema,
+        },
+      },
+    },
+  },
+});
+
+auth.openapi(loginRoute, async (c) => {
   let body: unknown;
 
   try {
@@ -62,18 +129,21 @@ auth.post("/login", async (c) => {
     return c.json({ error: "Your account is not enabled to use the API" }, 403);
   }
 
-  return c.json({
-    access_token: data.session.access_token,
-    token_type: data.session.token_type,
-    expires_in: data.session.expires_in,
-    refresh_token: data.session.refresh_token,
-    user: {
-      id: profile.id,
-      name: profile.name,
-      email: profile.email,
-      role: profile.role,
+  return c.json(
+    {
+      access_token: data.session.access_token,
+      token_type: data.session.token_type,
+      expires_in: data.session.expires_in,
+      refresh_token: data.session.refresh_token,
+      user: {
+        id: profile.id,
+        name: profile.name,
+        email: profile.email,
+        role: profile.role,
+      },
     },
-  });
+    200,
+  );
 });
 
 export default auth;

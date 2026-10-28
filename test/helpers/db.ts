@@ -7,6 +7,7 @@ export const USER_ID = "11111111-1111-1111-1111-111111111111";
 const builder = {
   select: vi.fn(),
   insert: vi.fn(),
+  update: vi.fn(),
   eq: vi.fn(),
   is: vi.fn(),
   order: vi.fn(),
@@ -24,12 +25,13 @@ export const db = {
     admin: {
       createUser: vi.fn(),
       deleteUser: vi.fn(),
+      updateUserById: vi.fn(),
     },
   },
   from: vi.fn(),
 };
 
-const chainable = ["select", "insert", "eq", "is", "order"] as const;
+const chainable = ["select", "insert", "update", "eq", "is", "order"] as const;
 
 function wireChain() {
   for (const method of chainable) {
